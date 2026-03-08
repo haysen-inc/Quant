@@ -4,7 +4,7 @@ import torch.optim as optim
 import pandas as pd
 import numpy as np
 from collections import deque
-from src.differentiable_expert import DifferentiableExpertModel
+from src.differentiable_expert import DifferentiableExpertTransformer
 from src.train import AsymmetricExpertLoss
 from src.features_torch import extract_features
 from src.labels_torch import extract_labels
@@ -14,7 +14,7 @@ class OnlineRLAgent:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         # Initialize and load the best historical baseline model
-        self.model = DifferentiableExpertModel().to(self.device)
+        self.model = DifferentiableExpertTransformer().to(self.device)
         self.model.load_state_dict(torch.load(model_path, map_location=self.device, weights_only=True))
         self.model.train()  # Online agent is ALWAYS in training mode
         
@@ -23,7 +23,7 @@ class OnlineRLAgent:
         
         # We use a much smaller learning rate for online fine-tuning to avoid catastrophic forgetting 
         # of the core human expert structural layout
-        expert_constants = ['w_bias', 'w_f1', 'w_f2', 'w_cond3_j1']
+        expert_constants = ['expert_prior.w_bias', 'expert_prior.w_f1', 'expert_prior.w_f2', 'expert_prior.w_cond3_j1']
         param_groups = [
             {'params': [p for n, p in self.model.named_parameters() if n in expert_constants], 'lr': learning_rate},
             {'params': [p for n, p in self.model.named_parameters() if n not in expert_constants], 'lr': learning_rate * 0.1}

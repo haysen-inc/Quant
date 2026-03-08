@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import pandas as pd
 from src.dataset import get_dataloaders
-from src.differentiable_expert import DifferentiableExpertModel
+from src.differentiable_expert import DifferentiableExpertTransformer
 from src.data_loader import fetch_spy_data
 from src.features_torch import extract_features
 from src.labels_torch import extract_labels
@@ -27,7 +27,7 @@ def run_profit_backtest():
         seq_len=15, batch_size=64, train_split=0.8, interval=interval
     )
     
-    model = DifferentiableExpertModel().to(device)
+    model = DifferentiableExpertTransformer().to(device)
     model.load_state_dict(torch.load('models/quant_transformer.pth', map_location=device, weights_only=True))
     model.eval()
     
@@ -41,14 +41,15 @@ def run_profit_backtest():
             x_dict = {
                 'C': x[:, :, 0], 'H': x[:, :, 1], 'L': x[:, :, 2],
                 'J1': x[:, :, 11], 'J2': x[:, :, 14], 'J3': x[:, :, 17],
-                'JX': x[:, :, 18], 'EMAJX': x[:, :, 19], 'EMAJX8': x[:, :, 20],
-                'ma_c_down': x[:, :, 21], 'ma_c_up': x[:, :, 22],
-                'JX_base': x[:, :, 23],
-                'F1': x[:, :, 24],
-                'F2': x[:, :, 25],
-                'EMA_JX_base': x[:, :, 26],
-                'EMA_F1': x[:, :, 27],
-                'EMA_F2': x[:, :, 28]
+                'JN3_36': x[:, :, 18],
+                'JX': x[:, :, 19], 'EMAJX': x[:, :, 20], 'EMAJX8': x[:, :, 21],
+                'ma_c_down': x[:, :, 22], 'ma_c_up': x[:, :, 23],
+                'JX_base': x[:, :, 24],
+                'F1': x[:, :, 25],
+                'F2': x[:, :, 26],
+                'EMA_JX_base': x[:, :, 27],
+                'EMA_F1': x[:, :, 28],
+                'EMA_F2': x[:, :, 29]
             }
             logits_seq = model(x_dict)
             probs = logits_seq[:, -1, :]

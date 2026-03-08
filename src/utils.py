@@ -1,6 +1,6 @@
 import torch
 import os
-from src.differentiable_expert import DifferentiableExpertModel
+from src.differentiable_expert import DifferentiableExpertTransformer
 
 import re
 
@@ -14,13 +14,13 @@ def extract_mylanguage_code(model_path, raw_code=None):
         return None, "Model file not found"
         
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = DifferentiableExpertModel().to(device)
+    model = DifferentiableExpertTransformer().to(device)
     model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
     
-    w_bias = model.w_bias.item()
-    w_f1 = model.w_f1.item()
-    w_f2 = model.w_f2.item()
-    w_cond3_j1 = model.w_cond3_j1.item()
+    w_bias = model.expert_prior.w_bias.item()
+    w_f1 = model.expert_prior.w_f1.item()
+    w_f2 = model.expert_prior.w_f2.item()
+    w_cond3_j1 = model.expert_prior.w_cond3_j1.item()
     
     bias_str = f"{w_bias:.4f}" if w_bias < 0 else f"+{w_bias:.4f}"
     

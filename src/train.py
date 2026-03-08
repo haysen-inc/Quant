@@ -5,14 +5,12 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 import os
-import matplotlib.pyplot as plt
 import numpy as np
-
 from src.dataset import get_dataloaders
-from src.differentiable_expert import DifferentiableExpertModel
-from src.data_loader import fetch_spy_data
+from src.differentiable_expert import DifferentiableExpertTransformer
 from src.features_torch import extract_features
 from src.labels_torch import extract_labels
+from src.data_loader import fetch_spy_data
 
 try:
     from sklearn.metrics import roc_auc_score, average_precision_score
@@ -191,12 +189,12 @@ def train_model(epochs=50, batch_size=64, lr=1e-2, seq_len=15, interval="1d", as
     )
     
     # 3. Initialize Differentiable Expert with Dynamic AST payload
-    model = DifferentiableExpertModel(init_constants=ast_config).to(device)
+    model = DifferentiableExpertTransformer(init_constants=ast_config).to(device)
     
-    # Phase 9 (Exp 3): Finding Escape Velocity LR
-    # We increase the learning rate from 0.05 up to 0.25. We want the parameters to 
-    # decouple the ROC-AUC from 1.0000 without imploding into noise.
-    expert_constants = ['w_bias', 'w_f1', 'w_f2', 'w_cond3_j1']
+    # Phase 9/18: Finding Escape Velocity LR
+    # We increase the learning rate from 0.05 up to 0.25 for expert parameters.
+    # The Transformer branch parameters will inherit the standard optimizer learning rate.
+    expert_constants = ['expert_prior.w_bias', 'expert_prior.w_f1', 'expert_prior.w_f2', 'expert_prior.w_cond3_j1']
     temperatures = [n for n, p in model.named_parameters() if 'temp' in n]
     high_lr_names = expert_constants + temperatures
     
@@ -366,10 +364,10 @@ def train_model(epochs=50, batch_size=64, lr=1e-2, seq_len=15, interval="1d", as
             writer.add_scalar(f'Finance_AvgPnL/{name}', fin_metrics[i]['avg_return'], epoch)
             
         # Log the evolution of the newly opened Expert Parameter Space (-50, 6, 6)
-        w_b = model.w_bias.item()
-        w_f1 = model.w_f1.item()
-        w_f2 = model.w_f2.item()
-        w_c = model.w_cond3_j1.item()
+        w_b = model.expert_prior.w_bias.item()
+        w_f1 = model.expert_prior.w_f1.item()
+        w_f2 = model.expert_prior.w_f2.item()
+        w_c = model.expert_prior.w_cond3_j1.item()
         
         writer.add_scalar('Expert_Constants/w_bias', w_b, epoch)
         writer.add_scalar('Expert_Constants/w_f1', w_f1, epoch)
@@ -380,11 +378,11 @@ def train_model(epochs=50, batch_size=64, lr=1e-2, seq_len=15, interval="1d", as
         history['w_f2_history'].append(w_f2)
         history['w_cond3_j1_history'].append(w_c)
         
-        history['temp_dg_jx_rx'].append(model.dg_jx_rx.temperature.item())
-        history['temp_dg_jx_j1'].append(model.dg_jx_j1.temperature.item())
-        history['temp_dg_c_macd'].append(model.dg_c_macd.temperature.item())
-        history['temp_dl_jx_rx'].append(model.dl_jx_rx.temperature.item())
-        history['temp_dl_c_macu'].append(model.dl_c_macu.temperature.item())
+        history['temp_dg_jx_rx'].append(model.expert_prior.dg_jx_rx.temperature.item())
+        history['temp_dg_jx_j1'].append(model.expert_prior.dg_jx_j1.temperature.item())
+        history['temp_dg_c_macd'].append(model.expert_prior.dg_c_macd.temperature.item())
+        history['temp_dl_jx_rx'].append(model.expert_prior.dl_jx_rx.temperature.item())
+        history['temp_dl_c_macu'].append(model.expert_prior.dl_c_macu.temperature.item())
         
         # Log other logic parameters like temperatures if they exist
         for name, param in model.named_parameters():

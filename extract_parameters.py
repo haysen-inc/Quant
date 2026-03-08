@@ -1,6 +1,6 @@
 import torch
 import os
-from src.differentiable_expert import DifferentiableExpertModel
+from src.differentiable_expert import DifferentiableExpertTransformer
 
 def extract_and_translate(model_name, model_path):
     print(f"\n{'='*50}")
@@ -13,20 +13,21 @@ def extract_and_translate(model_name, model_path):
         return
         
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = DifferentiableExpertModel().to(device)
+    model = DifferentiableExpertTransformer().to(device)
     model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
-    
+    model.eval()
+
     # Extract structural weights
-    w_bias = model.w_bias.item()
-    w_f1 = model.w_f1.item()
-    w_f2 = model.w_f2.item()
-    w_cond3_j1 = model.w_cond3_j1.item()
+    w_bias = model.expert_prior.w_bias.item()
+    w_f1 = model.expert_prior.w_f1.item()
+    w_f2 = model.expert_prior.w_f2.item()
+    w_cond3_j1 = model.expert_prior.w_cond3_j1.item()
     
-    print("\n--- 神经元突触原始数值 ---")
-    print(f"w_bias     (原值: -50.00) -> 进化值: {w_bias:+.4f}")
-    print(f"w_f1       (原值:  +6.00) -> 进化值: {w_f1:+.4f}")
-    print(f"w_f2       (原值:  +6.00) -> 进化值: {w_f2:+.4f}")
-    print(f"w_cond3_j1 (原值:  +1.00) -> 进化值: {w_cond3_j1:+.4f}")
+    print("--- Extracted Learned Expert Parameters ---")
+    print(f"w_bias: {w_bias:.4f} (Original: -50.0)")
+    print(f"w_f1: {w_f1:.4f}   (Original: 6.0)")
+    print(f"w_f2: {w_f2:.4f}   (Original: 6.0)")
+    print(f"w_cond3_j1: {w_cond3_j1:.4f} (Original: 1.0)")
     
     print("\n--- [复制粘贴] 返回麦语言 (WenHua/TB) 代替人工拍脑袋公式 ---")
     print("// 原版手工盲猜配置:")
