@@ -222,8 +222,9 @@ class DifferentiableExpertTransformer(nn.Module):
         
         # ZERO INITIALIZATION
         # Ensuring Epoch 0 is utterly identical to human expert equations
-        nn.init.zeros_(self.decoder.weight)
-        nn.init.zeros_(self.decoder.bias)
+        with torch.no_grad():
+            self.decoder.weight.zero_()
+            self.decoder.bias.zero_()
         
     def forward(self, x_dict):
         # 1. Human Logic Prior Probabilities

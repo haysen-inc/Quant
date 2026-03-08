@@ -42,14 +42,17 @@ def run_profit_backtest():
                 'C': x[:, :, 0], 'H': x[:, :, 1], 'L': x[:, :, 2],
                 'J1': x[:, :, 11], 'J2': x[:, :, 14], 'J3': x[:, :, 17],
                 'JN3_36': x[:, :, 18],
-                'JX': x[:, :, 19], 'EMAJX': x[:, :, 20], 'EMAJX8': x[:, :, 21],
-                'ma_c_down': x[:, :, 22], 'ma_c_up': x[:, :, 23],
-                'JX_base': x[:, :, 24],
-                'F1': x[:, :, 25],
-                'F2': x[:, :, 26],
-                'EMA_JX_base': x[:, :, 27],
-                'EMA_F1': x[:, :, 28],
-                'EMA_F2': x[:, :, 29]
+                'JX_base': x[:, :, 19],
+                'F1': x[:, :, 20],
+                'F2': x[:, :, 21],
+                'EMA_JX_base': x[:, :, 22],
+                'EMA_F1': x[:, :, 23],
+                'EMA_F2': x[:, :, 24],
+                'ma_c_down': x[:, :, 25],
+                'ma_c_up': x[:, :, 26],
+                'JX': x[:, :, 27],
+                'EMAJX': x[:, :, 28],
+                'EMAJX8': x[:, :, 29]
             }
             logits_seq = model(x_dict)
             probs = logits_seq[:, -1, :]

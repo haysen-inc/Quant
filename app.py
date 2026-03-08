@@ -77,6 +77,7 @@ def api_pretrain():
         
         # Execute the heavy historical training process with AST Override
         print(f"--- API Triggered: Pre-training ({epochs} Epochs, {learning_rate} LR) ---")
+        print(f"--- AST PARSED TARGET CONSTANTS: {ast_config} ---")
         history = train_model(epochs=epochs, batch_size=128, interval="1h", ast_config=ast_config)
         
         # Extract the new MyLanguage parameters generated
@@ -100,7 +101,8 @@ def api_pretrain():
                 "history_temp_4": history.get('temp_dl_jx_rx', []),
                 "history_temp_5": history.get('temp_dl_c_macu', []),
                 "best_pnl_percent": round(history.get('best_pnl', 0.0) * 100, 2),
-                "best_win_rate_percent": round(history.get('best_win_rate', 0.0) * 100, 2)
+                "best_win_rate_percent": round(history.get('best_win_rate', 0.0) * 100, 2),
+                "best_base_pnl_percent": round(history.get('best_base_pnl', 0.0) * 100, 2)
             }
         })
     except Exception as e:

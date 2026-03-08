@@ -104,7 +104,10 @@ X6:=BK2;
 X7:=SK2;
 X8:=SP1;
 X9:=BP1;
-X10:=周期分钟；</textarea>
+X10:=周期分钟；
+
+//................X2~X9 对应选取进出场点，X10 为K线的周期参数，即选取多少分钟K线
+</textarea>
                 </div>
 
                 <div class="input-group">
@@ -128,7 +131,8 @@ KN3:=SMA(RSV3,M3,1);
 DN3:=SMA(KN3,M31,1);
 JN3:=3*KN3-2*DN3;
 JN3<REF(JN3,1),SP;
-//以上作为SP2 点</textarea>
+//以上作为SP2 点
+</textarea>
                     <small>The tokenizer will automatically extract the constants from `JX` and `BK2` logic and map them
                         to PyTorch Parameter Tensors.</small>
                 </div>
@@ -174,11 +178,11 @@ JN3<REF(JN3,1),SP;
                         <span id="metric-loss" class="value">--</span>
                     </div>
                     <div class="metric-card">
-                        <h3>RL Agent Win Rate</h3>
+                        <h3 id="title-wr">Model Win Rate</h3>
                         <span id="metric-wr" class="value">-- %</span>
                     </div>
                     <div class="metric-card highlight">
-                        <h3>RL PnL Outperformance</h3>
+                        <h3 id="title-pnl">PnL Outperformance</h3>
                         <span id="metric-pnl" class="value">-- %</span>
                     </div>
                 </div>

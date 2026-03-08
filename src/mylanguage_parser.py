@@ -43,7 +43,7 @@ class MyLanguageParser:
                 var_m = re.search(f"{val_str}:=(\\d+(?:\\.\\d+)?)", formula_str.replace(" ", ""))
                 if var_m:
                     return float(var_m.group(1))
-            return 6.0 # Match terminal default expert baseline, not 1.0
+            return 1.0 # Standard multiplier default
 
         w_f1_val = extract_multiplier("TEMA3T3", right_side)
         w_f2_val = extract_multiplier("TEMA3T2", right_side)

@@ -237,10 +237,15 @@ btnPretrain.addEventListener('click', async () => {
                 mylanguageBox.value = data.mylanguage_code;
                 metricLoss.innerText = data.metrics.final_val_loss.toFixed(4);
 
+                document.getElementById('title-wr').innerText = "Model Win Rate";
                 metricWR.innerText = `${data.metrics.best_win_rate_percent.toFixed(1)} %`;
-                metricPnL.innerText = `${data.metrics.best_pnl_percent > 0 ? '+' : ''}${data.metrics.best_pnl_percent.toFixed(2)} %`;
 
-                if (data.metrics.best_pnl_percent > 0) {
+                document.getElementById('title-pnl').innerText = "PnL Outperformance";
+                const model_pnl = data.metrics.best_pnl_percent;
+                const base_pnl = data.metrics.best_base_pnl_percent;
+                metricPnL.innerText = `RL: ${model_pnl > 0 ? '+' : ''}${model_pnl.toFixed(2)}% | Base: ${base_pnl > 0 ? '+' : ''}${base_pnl.toFixed(2)}%`;
+
+                if (model_pnl > 0) {
                     metricPnL.parentElement.classList.add('highlight');
                 } else {
                     metricPnL.parentElement.classList.remove('highlight');
@@ -306,8 +311,10 @@ btnRL.addEventListener('click', async () => {
 
         if (data.success) {
             mylanguageBox.value = data.mylanguage_code;
+            document.getElementById('title-wr').innerText = "RL Agent Win Rate";
             metricWR.innerText = `${data.metrics.rl_win_rate_percent.toFixed(1)} % (${data.metrics.rl_trades_count} Trades)`;
 
+            document.getElementById('title-pnl').innerText = "RL PnL Outperformance";
             // Calculate Absolute Outperformance against Human Base
             const rl_pnl = data.metrics.rl_agent_pnl_percent;
             const base_pnl = data.metrics.base_expert_pnl_percent;

@@ -34,7 +34,7 @@ class AsymmetricExpertLoss(nn.Module):
         self.cost_fee = cost_fee
         self.bce = nn.BCELoss(reduction='none')
 
-    def forward(self, probs, targets, forward_returns_dual, prev_probs=None):
+    def forward(self, probs, targets, forward_returns_dual, prev_probs=None, use_bce=True):
         """
         probs: [Batch, 5] -> [BK2, SK2, BP1, SP1, SP2]
         targets: [Batch, 5] binary expert labels
@@ -80,23 +80,29 @@ class AsymmetricExpertLoss(nn.Module):
         # 4. Base Expert Loss (Clamped to prevent floating point crashes)
         clamped_probs = torch.clamp(probs, min=1e-6, max=1.0-1e-6)
         clamped_targets = torch.clamp(dynamic_targets, min=0.0, max=1.0)
-        base_loss = self.bce(clamped_probs, clamped_targets)
         
-        # 5. Apply Asymmetric Weighting
-        weighted_loss = (base_loss * weights).mean()
-        
+        if use_bce:
+            base_loss = self.bce(clamped_probs, clamped_targets)
+            weighted_loss = (base_loss * weights).mean()
+        else:
+            # PURE EV MAXIMIZATION: If we disable BCE, we directly penalize negative EV
+            # and reward positive EV (by minimizing negative profit).
+            # We scale by lambda_profit to keep gradient magnitudes similar to the BCE epoch
+            buy_ev = probs[:, [0, 2]] * r_long.unsqueeze(1)
+            sell_ev = probs[:, [1, 3, 4]] * -r_short.unsqueeze(1)
+            # Minimize negative EV means maximizing EV
+            weighted_loss = -self.lambda_profit * (buy_ev.sum(dim=-1) + sell_ev.sum(dim=-1)).mean()
+
         # 6. Transaction Cost Penalty
         pen_cost = torch.tensor(0.0, device=probs.device)
         if prev_probs is not None and probs.shape == prev_probs.shape:
             prob_diff = torch.abs(probs - prev_probs)
             pen_cost = self.cost_fee * prob_diff.mean()
             
-        loss_total = weighted_loss + pen_cost
-        
         # Also return alpha EV for logging purposes
-        buy_ev = (probs[:, [0, 2]] * r_long.unsqueeze(1)).mean()
-        sell_ev = (probs[:, [1, 3, 4]] * -r_short.unsqueeze(1)).mean()
-        alpha_realized = buy_ev + sell_ev
+        buy_ev_log = (probs[:, [0, 2]] * r_long.unsqueeze(1)).mean()
+        sell_ev_log = (probs[:, [1, 3, 4]] * -r_short.unsqueeze(1)).mean()
+        alpha_realized = buy_ev_log + sell_ev_log
         
         loss_total = weighted_loss + pen_cost
         
@@ -181,7 +187,7 @@ def train_model(epochs=50, batch_size=64, lr=1e-2, seq_len=15, interval="1d", as
         return
         
     features_dict = extract_features(df)
-    labels_dict = extract_labels(df, features_dict) # Still extracted for printing validation tests
+    labels_dict = extract_labels(df, features_dict, ast_config=ast_config) # Native User-Match Evaluation
     
     train_loader, val_loader, dataset = get_dataloaders(
         features_dict, labels_dict, df, 
@@ -240,17 +246,17 @@ def train_model(epochs=50, batch_size=64, lr=1e-2, seq_len=15, interval="1d", as
                 'J2': x[:, :, 14],
                 'J3': x[:, :, 17],
                 'JN3_36': x[:, :, 18],
-                'JX': x[:, :, 19],
-                'EMAJX': x[:, :, 20],
-                'EMAJX8': x[:, :, 21],
-                'ma_c_down': x[:, :, 22],
-                'ma_c_up': x[:, :, 23],
-                'JX_base': x[:, :, 24],
-                'F1': x[:, :, 25],
-                'F2': x[:, :, 26],
-                'EMA_JX_base': x[:, :, 27],
-                'EMA_F1': x[:, :, 28],
-                'EMA_F2': x[:, :, 29]
+                'JX_base': x[:, :, 19],
+                'F1': x[:, :, 20],
+                'F2': x[:, :, 21],
+                'EMA_JX_base': x[:, :, 22],
+                'EMA_F1': x[:, :, 23],
+                'EMA_F2': x[:, :, 24],
+                'ma_c_down': x[:, :, 25],
+                'ma_c_up': x[:, :, 26],
+                'JX': x[:, :, 27],
+                'EMAJX': x[:, :, 28],
+                'EMAJX8': x[:, :, 29]
             }
             
             # Forward pass: Output is [Batch, Seq, 5]
@@ -259,7 +265,7 @@ def train_model(epochs=50, batch_size=64, lr=1e-2, seq_len=15, interval="1d", as
             probs = logits_seq[:, -1, :] # [Batch, 5] -> [BK2, SK2, BP1, SP1, SP2]
             
             # Pure Alpha Loss
-            loss, alpha_realized, l_cost = criterion(probs, y.float(), r, prev_probs=prev_probs)
+            loss, alpha_realized, l_cost = criterion(probs, y.float(), r, prev_probs=prev_probs, use_bce=True)
             
             if not loss.requires_grad:
                 loss.requires_grad_(True)
@@ -297,23 +303,23 @@ def train_model(epochs=50, batch_size=64, lr=1e-2, seq_len=15, interval="1d", as
                     'J2': x[:, :, 14],
                     'J3': x[:, :, 17],
                     'JN3_36': x[:, :, 18],
-                    'JX': x[:, :, 19],
-                    'EMAJX': x[:, :, 20],
-                    'EMAJX8': x[:, :, 21],
-                    'ma_c_down': x[:, :, 22],
-                    'ma_c_up': x[:, :, 23],
-                    'JX_base': x[:, :, 24],
-                    'F1': x[:, :, 25],
-                    'F2': x[:, :, 26],
-                    'EMA_JX_base': x[:, :, 27],
-                    'EMA_F1': x[:, :, 28],
-                    'EMA_F2': x[:, :, 29]
+                    'JX_base': x[:, :, 19],
+                    'F1': x[:, :, 20],
+                    'F2': x[:, :, 21],
+                    'EMA_JX_base': x[:, :, 22],
+                    'EMA_F1': x[:, :, 23],
+                    'EMA_F2': x[:, :, 24],
+                    'ma_c_down': x[:, :, 25],
+                    'ma_c_up': x[:, :, 26],
+                    'JX': x[:, :, 27],
+                    'EMAJX': x[:, :, 28],
+                    'EMAJX8': x[:, :, 29]
                 }
                 
                 logits_seq = model(x_dict)
                 probs = logits_seq[:, -1, :]
                 
-                loss, _, _ = criterion(probs, y.float(), r)
+                loss, _, _ = criterion(probs, y.float(), r, use_bce=True)
                 val_loss += loss.item()
                 
                 all_preds.append(probs)
@@ -338,17 +344,24 @@ def train_model(epochs=50, batch_size=64, lr=1e-2, seq_len=15, interval="1d", as
         print(f"   [BP1/SP1 Finance] BP1 Win Rate: {bp1_fin['win_rate']*100:.1f}%, BP1 Avg PnL: {bp1_fin['avg_return']*100:.2f}% | SP1 Win Rate: {fin_metrics[3]['win_rate']*100:.1f}%, SP1 Avg PnL: {fin_metrics[3]['avg_return']*100:.2f}%")
 
         # --- PHASE 12: Best Model Checkpointing Logic ---
-        # We track the absolute PnL generated by the highly profitable True Entry Signals (BK2:0, SK2:1)
         long_pnl = fin_metrics[0]['avg_return']
         short_pnl = fin_metrics[1]['avg_return']
         current_pnl = (long_pnl + short_pnl) / 2.0
         
         current_win_rate = (fin_metrics[0]['win_rate'] + fin_metrics[1]['win_rate']) / 2.0
         
+        # Calculate Expert Base Match
+        expert_mask_long = val_targets[:, 0] == 1
+        expert_mask_short = val_targets[:, 1] == 1
+        expert_rets_long = val_returns[expert_mask_long]
+        expert_rets_short = -val_returns[expert_mask_short]
+        expert_avg_pnl = (expert_rets_long.sum() + expert_rets_short.sum()) / max(1, len(expert_rets_long) + len(expert_rets_short))
+        
         if current_pnl > best_pnl:
             best_pnl = current_pnl
             history['best_pnl'] = float(current_pnl)
             history['best_win_rate'] = float(current_win_rate)
+            history['best_base_pnl'] = float(expert_avg_pnl)
             torch.save(model.state_dict(), best_model_path)
             print(f"   ---> [NEW HIGH] Model checkpoint saved! Combined Entry Signals Avg PnL: {current_pnl*100:.2f}%")
         
