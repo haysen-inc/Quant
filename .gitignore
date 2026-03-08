@@ -1,0 +1,9 @@
+.venv/
+models/
+data/
+logs/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.vscode/
+frontend/node_modules/

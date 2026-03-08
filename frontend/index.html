@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Differentiable Expert - AI Quant Terminal</title>
+    <!-- Use Inter font for a modern Web3/FinTech aesthetic -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="glass-bg">
+        <header>
+            <h1>SPY QUANT <span>Differentiable Expert Network</span></h1>
+            <p>0代码一键预训练 & 强化学习翻译器</p>
+        </header>
+
+        <main class="dashboard">
+            <!-- Left Column: Controls & Input -->
+            <section class="panel control-panel">
+                <h2>1. MyLanguage Strategy Input (AST Parser)</h2>
+
+                <div class="input-group">
+                    <label>x-3.txt (Feature Generation / JX Vector)</label>
+                    <textarea id="ast-input-features" class="code-input" style="height: 180px;" spellcheck="false">//TEMA 短
+P3:=18;
+EMA1:= EMA(C, P3);
+EMAA2:= EMA(EMA1, P3);
+EMA3:= EMA(EMAA2, P3);
+DIS:=STDP(CLOSE,P3);
+TEU3:= (3*(EMA1-EMAA2) + EMA3)+DIS, COLORYELLOW;
+TEMA3: =3*(EMA1-EMAA2) + EMA3, COLORYELLOW;
+TED:= (3*(EMA1-EMAA2) + EMA3)-DIS, COLORYELLOW;
+
+NP1:=6;
+// TEMA短 升角 步长 6
+TEMA3T3:=(TEMA3-REF(TEMA3,NP1))/REF(TEMA3,NP1);
+// TEMA短 单口升角
+TEMA3T1:=(TEMA3-REF(TEMA3,1))/REF(TEMA3,1);
+//TEMA 长
+P2:=80;
+EMAP21:=EMA(C,P2);
+EMAP221:=EMA(EMAP21,P2);
+EMAP231:=EMA(EMAP221,P2);
+TEMAP2:=3*EMAP21-3*EMAP221+EMAP231;
+// TEMA长 升角 步长 6
+TEMA3T2:=(TEMAP2-REF(TEMAP2,NP1))/REF(TEMAP2,NP1);
+
+//KDJ 长
+NJ1:=204;
+MJ1:=80;
+PJ1:=12;
+RSV1:=(CLOSE-LLV(LOW,NJ1))/(HHV(HIGH,NJ1)-LLV(LOW,NJ1))*100;
+K1:SMA(RSV1,MJ1,1);
+D1:SMA(K1,PJ1,1);
+J1:3*K1-2*D1;
+//KDJ 短
+NJ2:=18;
+MJ2:=7;
+PJ2:=6;
+RSV2:=(CLOSE-LLV(LOW,NJ2))/(HHV(HIGH,NJ2)-LLV(LOW,NJ2))*100;
+K2:=SMA(RSV2,MJ2,1);
+D2:=SMA(K2,PJ2,1);
+J2:=3*K2-2*D2;
+
+NJ3:=9;
+MJ3:=5;
+PJ3:=3;
+RSV3:=(CLOSE-LLV(LOW,NJ3))/(HHV(HIGH,NJ3)-LLV(LOW,NJ3))*100;
+K3:=SMA(RSV3,MJ3,1);
+D3:=SMA(K3,PJ3,1);
+J3:=3*K3-2*D3;
+
+//..................
+JX:J1+J2-50+J2*TEMA3T3*NP1+J1*TEMA3T2*NP1+J3*TEMA3T1,DOT;
+
+EMAJX:EMA(JX,5);
+EMAJX8:EMA(JX,8);
+
+DRAWICON(CROSS(JX,MIN(J1,D1)),JX+80,'ICO108');
+DRAWICON(CROSSDOWN(JX,MAX(J1,D1)),JX-80,'ICO109');
+DRAWICON(CROSS(JX,EMAJX)&&J3>K3&&JX<J1,JX-35,'ICO8');
+DRAWICON(CROSSDOWN(JX,EMAJX)&&J3<K3&&JX>J1,JX+0,'IC09');
+
+BK2:=JX>REF(JX,1)&&C>MA(C,BARSLAST(CROSSDOWN(JX,EMAJX)))&&JX>J1;
+DRAWICON(BK2,JX+0.2,'ICO6');
+SK2:=JX<REF(JX,1)&&C<MA(C,BARSLAST(CROSS(JX,EMAJX)))&&JX<J1;
+DRAWICON(SK2,JX+0.2,'ICO7');
+SP1:=BK2=0&&REF(EVERY(BK2,3),1);
+DRAWICON(SP1,JX+0.2,'ICO11');
+BP1:=SK2=0&&REF(EVERY(SK2,3),1);
+DRAWICON(BP1,JX-35,'ICO10');
+//.................
+
+X2:=CROSS(JX,MIN(J1,D1));
+X3:=JX,MAX(J1,D1));
+X4:=CROSS(JX,EMAJX)&&J3>K3&&JX<J1;
+X5:=CROSSDOWN(JX,EMAJX)&&J3<K3&&JX>J1;
+X6:=BK2;
+X7:=SK2;
+X8:=SP1;
+X9:=BP1;
+X10:=周期分钟；</textarea>
+                </div>
+
+                <div class="input-group">
+                    <label>x-3 参考BK SP.txt (Labels / Action Exits)</label>
+                    <textarea id="ast-input-labels" class="code-input" style="height: 120px;" spellcheck="false">BP1:=SK2=0&&REF(EVERY(SK2,3),1);
+DRAWICON(BP1,JX-35,'ICO10');
+
+以上作为BK 点
+//
+SP1:=BK2=0&&REF(EVERY(BK2,3),1);
+DRAWICON(SP1,JX+0.2,'ICO11');
+
+以上作为SP1 点
+//
+
+N3:=36;
+M3:=18;
+M31:=3;
+RSV3:=(CLOSE-LLV(LOW,N3))/(HHV(HIGH,N3)-LLV(LOW,N3))*100;
+KN3:=SMA(RSV3,M3,1);
+DN3:=SMA(KN3,M31,1);
+JN3:=3*KN3-2*DN3;
+JN3<REF(JN3,1),SP;
+//以上作为SP2 点</textarea>
+                    <small>The tokenizer will automatically extract the constants from `JX` and `BK2` logic and map them
+                        to PyTorch Parameter Tensors.</small>
+                </div>
+
+                <h2>2. Global Parameters</h2>
+                <div class="input-group">
+                    <label>Training Epochs</label>
+                    <input type="number" id="epoch-input" value="50">
+                </div>
+                <div class="input-group">
+                    <label>Learning Rate (Expert Scale)</label>
+                    <input type="number" step="0.05" id="lr-input" value="0.25">
+                </div>
+                <div class="input-group">
+                    <label>Online Hold Failsafe (Hours)</label>
+                    <input type="number" id="hold-input" value="35">
+                    <small>For dynamic RL safety net</small>
+                </div>
+
+                <div class="actions">
+                    <button id="btn-pretrain" class="btn primary glowing">
+                        <span class="btn-text">⟳ Start 2Y Pre-Training</span>
+                        <div class="spinner hidden" id="spin-pretrain"></div>
+                    </button>
+
+                    <button id="btn-rl" class="btn secondary">
+                        <span class="btn-text">► Start Live Online RL (90d)</span>
+                        <div class="spinner hidden" id="spin-rl"></div>
+                    </button>
+                </div>
+
+                <div id="status-console" class="status-box">
+                    System Idle. Ready to initiate training pipelines.
+                </div>
+            </section>
+
+            <!-- Right Column: Results & MyLanguage -->
+            <section class="panel result-panel">
+                <h2>2. Execution Metrics</h2>
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <h3>Validation Loss</h3>
+                        <span id="metric-loss" class="value">--</span>
+                    </div>
+                    <div class="metric-card">
+                        <h3>RL Agent Win Rate</h3>
+                        <span id="metric-wr" class="value">-- %</span>
+                    </div>
+                    <div class="metric-card highlight">
+                        <h3>RL PnL Outperformance</h3>
+                        <span id="metric-pnl" class="value">-- %</span>
+                    </div>
+                </div>
+
+                <!-- 9-Factor Visualization Grid -->
+                <h3 style="margin-top: 20px;">AI 9-Factor Neural Parameter Evolution</h3>
+                <div class="chart-grid"
+                    style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 15px;">
+                    <div style="position: relative; height:18vh;"><canvas id="f1Chart"></canvas></div>
+                    <div style="position: relative; height:18vh;"><canvas id="f2Chart"></canvas></div>
+                    <div style="position: relative; height:18vh;"><canvas id="f3Chart"></canvas></div>
+                    <div style="position: relative; height:18vh;"><canvas id="f4Chart"></canvas></div>
+                    <div style="position: relative; height:18vh;"><canvas id="f5Chart"></canvas></div>
+                    <div style="position: relative; height:18vh;"><canvas id="f6Chart"></canvas></div>
+                    <div style="position: relative; height:18vh;"><canvas id="f7Chart"></canvas></div>
+                    <div style="position: relative; height:18vh;"><canvas id="f8Chart"></canvas></div>
+                    <div style="position: relative; height:18vh;"><canvas id="f9Chart"></canvas></div>
+                </div>
+
+                <h3 style="margin-top: 20px;">Live Decisions vs Baseline PnL</h3>
+                <div class="chart-container" style="position: relative; height:22vh; width:100%; margin-top: 10px;">
+                    <canvas id="probChart"></canvas>
+                </div>
+                <div class="chart-container" style="position: relative; height:25vh; width:100%; margin-top: 10px;">
+                    <canvas id="pnlChart"></canvas>
+                </div>
+
+                <h2>3. MyLanguage Export (文华/TB)</h2>
+                <div class="code-container">
+                    <div class="code-header">
+                        <span class="badge" id="model-badge">Current: Phase 14 Online RL</span>
+                        <button id="btn-copy" class="copy-btn">Copy</button>
+                    </div>
+                    <textarea id="mylanguage-box" readonly
+                        spellcheck="false">Loading Differentiable Expert State...</textarea>
+                </div>
+                <div class="button-row">
+                    <button id="btn-load-base" class="btn text-btn">Load Base Model</button>
+                    <button id="btn-load-rl" class="btn text-btn">Load Live Model</button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Inject frontend logic -->
+    <script src="app.js"></script>
+</body>
+
+</html>
