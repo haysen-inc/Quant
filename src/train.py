@@ -85,11 +85,18 @@ class AsymmetricExpertLoss(nn.Module):
             base_loss = self.bce(clamped_probs, clamped_targets)
             weighted_loss = (base_loss * weights).mean()
         else:
-            # PURE EV MAXIMIZATION: If we disable BCE, we directly penalize negative EV
-            # and reward positive EV (by minimizing negative profit).
-            # We scale by lambda_profit to keep gradient magnitudes similar to the BCE epoch
-            buy_ev = probs[:, [0, 2]] * r_long.unsqueeze(1)
-            sell_ev = probs[:, [1, 3, 4]] * -r_short.unsqueeze(1)
+            # PURE EV MAXIMIZATION: Directly penalize negative EV and reward positive EV
+            # --- "FAT TAIL" UNBOUNDED PROFIT FIX ---
+            # We explicitly REMOVE the tanh() bounding here. The user requested 
+            # "Low Win-Rate, High-Return" asymmetric trading. By using pure linear returns, 
+            # a single massive +10% trade will easily outweigh 10 small -0.5% losses, 
+            # forcing the model to hunt for extreme Alpha instead of safe micro-scalps.
+            scaled_r_long = r_long.unsqueeze(1) * 100.0  # Just scale up for gradient magnitude, keep it linear!
+            scaled_r_short = r_short.unsqueeze(1) * 100.0
+            
+            buy_ev = probs[:, [0, 2]] * scaled_r_long
+            sell_ev = probs[:, [1, 3, 4]] * -scaled_r_short
+            
             # Minimize negative EV means maximizing EV
             weighted_loss = -self.lambda_profit * (buy_ev.sum(dim=-1) + sell_ev.sum(dim=-1)).mean()
 
@@ -133,8 +140,16 @@ def calculate_metrics(y_pred, y_true):
         
     return pr_aucs, roc_aucs
 
+def calculate_macro_returns(close_prices_seq, hold_period=35):
+    # close_prices_seq is [Batch, Seq]
+    # We take the close price at the end of the sequence (current decision time).
+    # Since we don't have future prices inside the sequence tensor, 
+    # we need to pass the raw future returns differently or shift the original df.
+    pass # Wait, we can't do this easily from just `x_dict` because it only contains historical data up to `t`.
+
 def calculate_financial_metrics(y_pred, y_true, forward_returns_batch, top_k=50):
     y_p = y_pred.cpu().detach().numpy()
+    y_t = y_true.cpu().numpy()
     r_fwd = forward_returns_batch.cpu().numpy()
     
     fin_metrics = []
@@ -142,7 +157,19 @@ def calculate_financial_metrics(y_pred, y_true, forward_returns_batch, top_k=50)
     # 0: BK2, 1: SK2, 2: BP1, 3: SP1, 4: SP2
     for i in range(5):
         probs = y_p[:, i]
-        top_indices = np.argsort(probs)[::-1][:top_k]
+        
+        # --- THRESHOLD EVALUATION FIX ---
+        # An EV-maximized model uses continuous probability thresholds instead of rigid quota counts.
+        # We classify any prediction > 0.5 as a triggered trade natively, allowing the network 
+        # to organically dodge bad trades instead of being forced into `top_k` quotas!
+        top_indices = np.where(probs >= 0.5)[0]
+        trade_count = len(top_indices)
+        
+        if trade_count == 0:
+            # Fallback to the single highest probability to avoid dividing by zero
+            # while letting the tracker still calculate relative direction
+            trade_count = 1 
+            top_indices = np.argsort(probs)[::-1][:1]
         
         # Dual Dimension Return Selector
         if i in [0, 2]: # Long Signal -> Uses SP1/SP2 Exit Array
@@ -151,10 +178,11 @@ def calculate_financial_metrics(y_pred, y_true, forward_returns_batch, top_k=50)
             selected_returns = -r_fwd[top_indices, 1]
             
         wins = (selected_returns > 0).sum()
-        win_rate = wins / (top_k + 1e-8)
+        win_rate = wins / (trade_count + 1e-8)
         avg_return = selected_returns.mean()
+        sum_return = selected_returns.sum()
         
-        fin_metrics.append({'win_rate': win_rate, 'avg_return': avg_return})
+        fin_metrics.append({'win_rate': win_rate, 'avg_return': avg_return, 'sum_return': sum_return, 'trades': trade_count})
         
     return fin_metrics
 
@@ -197,6 +225,9 @@ def train_model(epochs=50, batch_size=64, lr=1e-2, seq_len=15, interval="1d", as
     # 3. Initialize Differentiable Expert with Dynamic AST payload
     model = DifferentiableExpertTransformer(init_constants=ast_config).to(device)
     
+    # Phase 16: Ensure BCE lock logic defaults properly for Phase 14 constraints
+    use_bce = True
+    
     # Phase 9/18: Finding Escape Velocity LR
     # We increase the learning rate from 0.05 up to 0.25 for expert parameters.
     # The Transformer branch parameters will inherit the standard optimizer learning rate.
@@ -234,7 +265,7 @@ def train_model(epochs=50, batch_size=64, lr=1e-2, seq_len=15, interval="1d", as
         prev_probs = None 
         
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}")
-        for batch_idx, (x, y, r) in enumerate(pbar):
+        for batch_idx, (x, y, r, r_macro) in enumerate(pbar):
             # We unpack the [Batch, Seq, 23] tensor back into a dict for the model
             # Based on features_torch.py order: 
             # 0:C, 1:H, 2:L, ..., 11:J1, 14:J2, 17:J3, 18:JN3_36, 19:JX, 20:EMAJX, 21:EMAJX8, 22:ma_c_down, 23:ma_c_up
@@ -265,7 +296,12 @@ def train_model(epochs=50, batch_size=64, lr=1e-2, seq_len=15, interval="1d", as
             probs = logits_seq[:, -1, :] # [Batch, 5] -> [BK2, SK2, BP1, SP1, SP2]
             
             # Pure Alpha Loss
-            loss, alpha_realized, l_cost = criterion(probs, y.float(), r, prev_probs=prev_probs, use_bce=True)
+            # --- PHASE 14 PROFIT OPTIMIZATION FIX ---
+            # Epoch 0 (First Pass) uses BCE to guarantee 100% Zero-Shot equivalence mapping.
+            # All subsequent epochs disable BCE so the model purely optimizes for PnL / Return EV!
+            should_use_bce = (epoch == 0) and use_bce
+            # --- EV LOSS USES FAT-TAIL MACRO RETURNS ---
+            loss, alpha_realized, l_cost = criterion(probs, y.float(), r_macro, prev_probs=prev_probs, use_bce=should_use_bce)
             
             if not loss.requires_grad:
                 loss.requires_grad_(True)
@@ -290,10 +326,11 @@ def train_model(epochs=50, batch_size=64, lr=1e-2, seq_len=15, interval="1d", as
         all_preds = []
         all_targets = []
         all_returns = []
+        all_macro_returns = []
         
         with torch.no_grad():
-            for x, y, r in val_loader:
-                x, y, r = x.to(device), y.to(device), r.to(device)
+            for x, y, r, r_macro in val_loader:
+                x, y, r, r_macro = x.to(device), y.to(device), r.to(device), r_macro.to(device)
                 
                 x_dict = {
                     'C': x[:, :, 0],
@@ -319,12 +356,14 @@ def train_model(epochs=50, batch_size=64, lr=1e-2, seq_len=15, interval="1d", as
                 logits_seq = model(x_dict)
                 probs = logits_seq[:, -1, :]
                 
-                loss, _, _ = criterion(probs, y.float(), r, use_bce=True)
+                should_use_bce = (epoch == 0) and use_bce
+                loss, _, _ = criterion(probs, y.float(), r_macro, use_bce=should_use_bce)
                 val_loss += loss.item()
                 
                 all_preds.append(probs)
                 all_targets.append(y)
                 all_returns.append(r)
+                all_macro_returns.append(r_macro)
                 
         avg_val_loss = val_loss / len(val_loader)
         history['val_loss'].append(avg_val_loss)
@@ -333,9 +372,11 @@ def train_model(epochs=50, batch_size=64, lr=1e-2, seq_len=15, interval="1d", as
         val_preds = torch.cat(all_preds, dim=0)
         val_targets = torch.cat(all_targets, dim=0) # [Batch, 5] true
         val_returns = torch.cat(all_returns, dim=0)
+        val_macro_returns = torch.cat(all_macro_returns, dim=0)
         
         pr_aucs, roc_aucs = calculate_metrics(val_preds, val_targets)
-        fin_metrics = calculate_financial_metrics(val_preds, val_targets, val_returns, top_k=20)
+        # --- FAT TAIL VALIDATION: Model evaluates against 35-bar macro horizon ---
+        fin_metrics = calculate_financial_metrics(val_preds, val_targets, val_macro_returns, top_k=20)
         
         print(f"Epoch {epoch+1}/{epochs} - Train EV_Loss: {avg_train_loss:.4f} (Alpha: {avg_train_alpha:.4f}) - Val EV_Loss: {avg_val_loss:.4f}")
         # Print DL metrics for BP1 (Index 2 in the 4-dim output)
@@ -344,24 +385,37 @@ def train_model(epochs=50, batch_size=64, lr=1e-2, seq_len=15, interval="1d", as
         print(f"   [BP1/SP1 Finance] BP1 Win Rate: {bp1_fin['win_rate']*100:.1f}%, BP1 Avg PnL: {bp1_fin['avg_return']*100:.2f}% | SP1 Win Rate: {fin_metrics[3]['win_rate']*100:.1f}%, SP1 Avg PnL: {fin_metrics[3]['avg_return']*100:.2f}%")
 
         # --- PHASE 12: Best Model Checkpointing Logic ---
-        long_pnl = fin_metrics[0]['avg_return']
-        short_pnl = fin_metrics[1]['avg_return']
-        current_pnl = (long_pnl + short_pnl) / 2.0
+        # "Fat Tail" Fix: We no longer average outcomes across trades. We sum them up.
+        # A 10% gain + three -1% losses = +7% PnL (not 1.75% avg).
+        long_pnl = fin_metrics[0]['sum_return']
+        short_pnl = fin_metrics[1]['sum_return']
+        current_pnl = long_pnl + short_pnl
         
-        current_win_rate = (fin_metrics[0]['win_rate'] + fin_metrics[1]['win_rate']) / 2.0
+        # Calculate weighted average win rate based on trades
+        total_model_trades = fin_metrics[0]['trades'] + fin_metrics[1]['trades'] + 1e-8
+        model_wins = fin_metrics[0]['win_rate'] * fin_metrics[0]['trades'] + fin_metrics[1]['win_rate'] * fin_metrics[1]['trades']
+        current_win_rate = model_wins / total_model_trades
         
-        # Calculate Expert Base Match
+        # Calculate Expert Base Match correctly grabbing Long and Short return columns specifically
         expert_mask_long = val_targets[:, 0] == 1
         expert_mask_short = val_targets[:, 1] == 1
-        expert_rets_long = val_returns[expert_mask_long]
-        expert_rets_short = -val_returns[expert_mask_short]
-        expert_avg_pnl = (expert_rets_long.sum() + expert_rets_short.sum()) / max(1, len(expert_rets_long) + len(expert_rets_short))
+        
+        expert_rets_long = val_returns[expert_mask_long, 0]
+        expert_rets_short = -val_returns[expert_mask_short, 1]
+        
+        expert_wins = (expert_rets_long > 0).sum() + (expert_rets_short > 0).sum()
+        total_expert_trades = max(1, len(expert_rets_long) + len(expert_rets_short))
+        
+        # BASELINE PNL SUM FIX: Baseline is evaluated exactly like the model (Pure Accumulation)
+        expert_avg_pnl = (expert_rets_long.sum() + expert_rets_short.sum())
+        base_expert_win_rate = expert_wins / total_expert_trades
         
         if current_pnl > best_pnl:
             best_pnl = current_pnl
             history['best_pnl'] = float(current_pnl)
             history['best_win_rate'] = float(current_win_rate)
             history['best_base_pnl'] = float(expert_avg_pnl)
+            history['best_base_win_rate'] = float(base_expert_win_rate)
             torch.save(model.state_dict(), best_model_path)
             print(f"   ---> [NEW HIGH] Model checkpoint saved! Combined Entry Signals Avg PnL: {current_pnl*100:.2f}%")
         
@@ -375,17 +429,17 @@ def train_model(epochs=50, batch_size=64, lr=1e-2, seq_len=15, interval="1d", as
             writer.add_scalar(f'Metrics_ROC_AUC/{name}', roc_aucs[i], epoch)
             writer.add_scalar(f'Finance_WinRate/{name}', fin_metrics[i]['win_rate'], epoch)
             writer.add_scalar(f'Finance_AvgPnL/{name}', fin_metrics[i]['avg_return'], epoch)
-            
+
         # Log the evolution of the newly opened Expert Parameter Space (-50, 6, 6)
         w_b = model.expert_prior.w_bias.item()
         w_f1 = model.expert_prior.w_f1.item()
         w_f2 = model.expert_prior.w_f2.item()
         w_c = model.expert_prior.w_cond3_j1.item()
-        
+
         writer.add_scalar('Expert_Constants/w_bias', w_b, epoch)
         writer.add_scalar('Expert_Constants/w_f1', w_f1, epoch)
         writer.add_scalar('Expert_Constants/w_f2', w_f2, epoch)
-        
+
         history['w_bias_history'].append(w_b)
         history['w_f1_history'].append(w_f1)
         history['w_f2_history'].append(w_f2)

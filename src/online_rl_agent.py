@@ -122,15 +122,22 @@ class OnlineRLAgent:
         
         self.metrics['trades_resolved'] += 1
 
-def run_live_simulation():
+def run_live_simulation(raw_code=None):
     """
     Test harness that simulates a live data stream using recent historical data.
     """
     import datetime
     from src.data_loader import fetch_spy_data
+    from src.mylanguage_parser import parse_mylanguage
     
     print("Initiating Live Online RL Simulation...")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # Process Custom Rules via AST Engine dynamically
+    ast_config = None
+    if raw_code:
+        ast_config = parse_mylanguage(raw_code)
+        print(f"--- RL Agent Configured from User AST: {ast_config} ---")
     
     # Fetch completely unseen recent data (e.g., last 90 days)
     today = datetime.datetime.now()
@@ -142,7 +149,7 @@ def run_live_simulation():
     df.dropna(inplace=True)
     
     features_dict = extract_features(df)
-    labels_dict = extract_labels(df, features_dict)
+    labels_dict = extract_labels(df, features_dict, ast_config=ast_config)
     
     # Deep Immunization: Some indicators may still spawn NaNs or Infs depending on edge cases.
     for k in features_dict:
@@ -231,8 +238,11 @@ def run_live_simulation():
                 rl_state['pos'] = -1; rl_state['entry'] = current_price
         else:
             rl_state['bars'] += 1
-            is_long_exit_trigger = probs[3] >= th_short or probs[4] >= th_short or y_v[3] == 1.0 or y_v[4] == 1.0 or rl_state['bars'] >= agent.hold_period
-            is_short_exit_trigger = probs[2] >= th_long or y_v[2] == 1.0 or rl_state['bars'] >= agent.hold_period
+            # --- FAT TAIL ISOLATION FIX ---
+            # The RL Agent should NOT be forced out of a perfectly good trend just because the noisy human baseline (y_v) 
+            # randomly triggered an SP2 oscillator tick. It must rely completely on its own `probs` or its `hold_period`.
+            is_long_exit_trigger = probs[3] >= th_short or probs[4] >= th_short or rl_state['bars'] >= agent.hold_period
+            is_short_exit_trigger = probs[2] >= th_long or rl_state['bars'] >= agent.hold_period
             
             if (rl_state['pos'] == 1 and is_long_exit_trigger) or (rl_state['pos'] == -1 and is_short_exit_trigger):
                 r = np.log(current_price / rl_state['entry'])

@@ -102,7 +102,8 @@ def api_pretrain():
                 "history_temp_5": history.get('temp_dl_c_macu', []),
                 "best_pnl_percent": round(history.get('best_pnl', 0.0) * 100, 2),
                 "best_win_rate_percent": round(history.get('best_win_rate', 0.0) * 100, 2),
-                "best_base_pnl_percent": round(history.get('best_base_pnl', 0.0) * 100, 2)
+                "best_base_pnl_percent": round(history.get('best_base_pnl', 0.0) * 100, 2),
+                "best_base_win_rate_percent": round(history.get('best_base_win_rate', 0.0) * 100, 2)
             }
         })
     except Exception as e:
@@ -117,7 +118,7 @@ def api_rl():
         raw_code = data.get('mylanguage', None)
         
         print(f"--- API Triggered: Online RL Live Adaptation (Hold Failsafe: {hold_period}) ---")
-        final_rl_pnl, final_base_pnl, rl_trades, wr, rl_history, base_history, rl_decision_history = run_live_simulation()
+        final_rl_pnl, final_base_pnl, rl_trades, wr, rl_history, base_history, rl_decision_history = run_live_simulation(raw_code=raw_code)
         
         # Extract the latest parameters from the newly adapted model
         code, _ = extract_mylanguage_code("models/live_adapted_expert_1h.pth", raw_code=raw_code)
@@ -137,6 +138,9 @@ def api_rl():
             }
         })
     except Exception as e:
+        import traceback
+        print("--- CRITICAL RL API TRACEBACK ---")
+        traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
 if __name__ == '__main__':

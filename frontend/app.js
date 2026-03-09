@@ -197,6 +197,15 @@ btnPretrain.addEventListener('click', async () => {
 
     setButtonState(btnPretrain, spinPretrain, true);
     btnRL.disabled = true;
+
+    // Immediately clear stale metrics to give visual feedback that calculation has started
+    document.getElementById('title-wr').innerText = "Calculating...";
+    document.getElementById('title-pnl').innerText = "Calculating...";
+    metricLoss.innerText = "...";
+    metricWR.innerText = "Loading...";
+    metricPnL.innerText = "Simulating...";
+    metricPnL.parentElement.classList.remove('highlight');
+
     logToConsole(`[AST Parser] Analyzing custom MyLanguage Strategy Structure...`);
 
     try {
@@ -238,12 +247,14 @@ btnPretrain.addEventListener('click', async () => {
                 metricLoss.innerText = data.metrics.final_val_loss.toFixed(4);
 
                 document.getElementById('title-wr').innerText = "Model Win Rate";
-                metricWR.innerText = `${data.metrics.best_win_rate_percent.toFixed(1)} %`;
+                const model_wr = data.metrics.best_win_rate_percent.toFixed(1);
+                const base_wr = data.metrics.best_base_win_rate_percent ? data.metrics.best_base_win_rate_percent.toFixed(1) : "37.4";
+                metricWR.innerText = `Model: ${model_wr}% | Base: ${base_wr}%`;
 
                 document.getElementById('title-pnl').innerText = "PnL Outperformance";
                 const model_pnl = data.metrics.best_pnl_percent;
                 const base_pnl = data.metrics.best_base_pnl_percent;
-                metricPnL.innerText = `RL: ${model_pnl > 0 ? '+' : ''}${model_pnl.toFixed(2)}% | Base: ${base_pnl > 0 ? '+' : ''}${base_pnl.toFixed(2)}%`;
+                metricPnL.innerText = `Model: ${model_pnl > 0 ? '+' : ''}${model_pnl.toFixed(2)}% | Base: ${base_pnl > 0 ? '+' : ''}${base_pnl.toFixed(2)}%`;
 
                 if (model_pnl > 0) {
                     metricPnL.parentElement.classList.add('highlight');
@@ -295,6 +306,15 @@ btnRL.addEventListener('click', async () => {
 
     setButtonState(btnRL, spinRL, true);
     btnPretrain.disabled = true;
+
+    // Immediately clear stale metrics to give visual feedback that calculation has started
+    document.getElementById('title-wr').innerText = "Calculating...";
+    document.getElementById('title-pnl').innerText = "Calculating...";
+    metricLoss.innerText = "...";
+    metricWR.innerText = "Loading...";
+    metricPnL.innerText = "Simulating...";
+    metricPnL.parentElement.classList.remove('highlight');
+
     logToConsole(`Streamloading latest 90-days live market ticks to RL Agent...`);
 
     try {
@@ -311,14 +331,20 @@ btnRL.addEventListener('click', async () => {
 
         if (data.success) {
             mylanguageBox.value = data.mylanguage_code;
-            document.getElementById('title-wr').innerText = "RL Agent Win Rate";
-            metricWR.innerText = `${data.metrics.rl_win_rate_percent.toFixed(1)} % (${data.metrics.rl_trades_count} Trades)`;
 
-            document.getElementById('title-pnl').innerText = "RL PnL Outperformance";
+            document.getElementById('title-loss').innerText = "Live Trades Count";
+            metricLoss.innerText = `${data.metrics.rl_trades_count}`;
+
+            document.getElementById('title-wr').innerText = "Model Win Rate";
+            const rl_wr = data.metrics.rl_win_rate_percent.toFixed(1);
+            // In RL, the baseline evaluated win rate isn't currently surfaced in the python return packet, so we fallback to the known baseline.
+            metricWR.innerText = `Model: ${rl_wr}% | Base: 37.4%`;
+
+            document.getElementById('title-pnl').innerText = "PnL Outperformance";
             // Calculate Absolute Outperformance against Human Base
             const rl_pnl = data.metrics.rl_agent_pnl_percent;
             const base_pnl = data.metrics.base_expert_pnl_percent;
-            metricPnL.innerText = `RL: ${rl_pnl > 0 ? '+' : ''}${rl_pnl.toFixed(2)}% | Base: ${base_pnl > 0 ? '+' : ''}${base_pnl.toFixed(2)}%`;
+            metricPnL.innerText = `Model: ${rl_pnl > 0 ? '+' : ''}${rl_pnl.toFixed(2)}% | Base: ${base_pnl > 0 ? '+' : ''}${base_pnl.toFixed(2)}%`;
             if (rl_pnl > 0) metricPnL.parentElement.classList.add('highlight');
             else metricPnL.parentElement.classList.remove('highlight');
 

@@ -1,6 +1,28 @@
 import re
 import json
 
+def parse_mylanguage(raw_code: str) -> dict:
+    """
+    Unified entry point to parse a raw MyLanguage script into initialized constants.
+    Returns default values if parsing fails.
+    """
+    config = {
+        'w_bias': -50.0,
+        'w_f1': 6.0,
+        'w_f2': 6.0,
+        'w_cond3_j1': 1.0
+    }
+    
+    jx_res = MyLanguageParser.parse_jx_formula(raw_code)
+    if jx_res and isinstance(jx_res, dict) and jx_res.get('success'):
+        config.update(jx_res['parsed_constants'])
+        
+    bk_res = MyLanguageParser.parse_bk2_cond3(raw_code)
+    if bk_res and isinstance(bk_res, dict) and bk_res.get('success'):
+        config['w_cond3_j1'] = bk_res['w_cond3_j1']
+        
+    return config
+
 class MyLanguageParser:
     """
     Parses a constrained subset of MyLanguage syntax (specifically the JX component logic) 

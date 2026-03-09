@@ -52,10 +52,12 @@ class SPYSequenceDataset(Dataset):
         sp2 = labels_dict['SP2'].numpy()
         bp1 = labels_dict['BP1'].numpy()
         
+        # Long exits occur when SP1 or SP2 fire
         long_exits = np.where((sp1 == 1.0) | (sp2 == 1.0))[0]
+        # Short exits occur when BP1 fires
         short_exits = np.where(bp1 == 1.0)[0]
         
-        max_hold = 200 # Fallback failsafe
+        max_hold = 200 # Failsafe
         
         for t in range(len(close_prices)):
             # Long Trades Extractor (BK2, BP1) -> Closed by SP1/SP2
@@ -71,6 +73,16 @@ class SPYSequenceDataset(Dataset):
             r_fwd_dual[t, 1] = (close_prices[idx_short] - close_prices[t]) / close_prices[t]
             
         self.R = r_fwd_dual # [T, 2]
+        
+        # --- FAT TAIL MACRO RETURN TENSOR ---
+        # 35-bar unconstrained holding period purely for RL AI evaluation
+        r_macro_dual = torch.zeros((len(close_prices), 2), dtype=torch.float32)
+        macro_hold = 35
+        for t in range(len(close_prices)):
+            idx_target = min(t + macro_hold, len(close_prices) - 1)
+            r_macro_dual[t, 0] = (close_prices[idx_target] - close_prices[t]) / close_prices[t]
+            r_macro_dual[t, 1] = (close_prices[idx_target] - close_prices[t]) / close_prices[t]  # Absolute inversion happens in Loss
+        self.R_macro = r_macro_dual # [T, 2]
 
     def __len__(self):
         # We can only generate windows up to len - sequence_length
@@ -81,7 +93,8 @@ class SPYSequenceDataset(Dataset):
         Returns:
             x: Tensor of shape (sequence_length, num_features)
             y: Tensor of shape (5,) representing labels at the LAST day of the sequence
-            r: Future return at the LAST day of the sequence
+            r: Future return (Baseline logic) at the LAST day of the sequence
+            r_macro: Future return (Unconstrained 35-bar logic)
         """
         start_idx = idx
         end_idx = idx + self.sequence_length
@@ -92,8 +105,9 @@ class SPYSequenceDataset(Dataset):
         target_idx = end_idx - 1
         y_label = self.Y[target_idx]
         r_fwd = self.R[target_idx]
+        r_fwd_macro = self.R_macro[target_idx]
         
-        return x_seq, y_label, r_fwd
+        return x_seq, y_label, r_fwd, r_fwd_macro
 
 def get_dataloaders(features, labels, df, seq_len=15, batch_size=32, train_split=0.8, interval="1d"):
     dataset = SPYSequenceDataset(features, labels, df, sequence_length=seq_len, interval=interval)
