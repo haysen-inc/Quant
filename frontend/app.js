@@ -1,384 +1,362 @@
-const API_BASE = window.location.origin + "/api";
+/* ============================================================
+   SPY Quant Terminal — Dashboard v10
+   Pure display dashboard, no training UI.
+   ============================================================ */
 
+const API = window.location.origin + '/api';
+const $ = (id) => document.getElementById(id);
 
-// Elements
-const btnPretrain = document.getElementById('btn-pretrain');
-const btnRL = document.getElementById('btn-rl');
-const spinPretrain = document.getElementById('spin-pretrain');
-const spinRL = document.getElementById('spin-rl');
-const statusBox = document.getElementById('status-console');
-const mylanguageBox = document.getElementById('mylanguage-box');
-const badge = document.getElementById('model-badge');
+let ohlcData = null;
+let storeData = null;
+let simCapital = 10000;
+let simLeverage = 1;
+let currentRange = 90;
 
-const metricLoss = document.getElementById('metric-loss');
-const metricWR = document.getElementById('metric-wr');
-const metricPnL = document.getElementById('metric-pnl');
-
-// Global Chart Instances
-let paramCharts = [];
-let pnlChartInstance = null;
-let probChartInstance = null;
-
-// Thematic Grid Settings
-const chartOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: {
-        duration: 2000,
-        easing: 'easeOutQuart'
-    },
-    plugins: {
-        legend: { labels: { color: '#a0aec0', font: { family: 'Inter' } } }
-    },
-    scales: {
-        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#718096' } },
-        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#718096' } }
-    }
+const STRATEGY = {
+    base:   { label: '模型', color: '#3b82f6', colorLoss: '#f87171', buy: '开多', win: '平盈', loss: '平亏' },
+    expert: { label: '专家', color: '#f59e0b', colorLoss: '#ef5350', buy: '开多', win: '平盈', loss: '平亏' },
 };
 
-function drawParamChart(data) {
-    paramCharts.forEach(c => c.destroy());
-    paramCharts = [];
+let candleChart, candleSeries;
+let equityChart, eqBase, eqExpert;
+let sigBK2Chart, sigBK2Series;
+let sigSK2Chart, sigSK2Series;
+let sigSP1Chart, sigSP1Series;
+let sigSP2Chart, sigSP2Series;
 
-    const labels = data.history_loss ? data.history_loss.map((_, i) => `Ep ${i + 1}`) : [0, 0, 0];
+// ============================================================
+// Charts
+// ============================================================
 
-    const configs = [
-        { id: 'f1Chart', title: 'Factor 1: w_bias', val: data.history_w_bias || [0, 0], color: '#ef4444' },
-        { id: 'f2Chart', title: 'Factor 2: w_f1', val: data.history_w_f1 || [0, 0], color: '#3b82f6' },
-        { id: 'f3Chart', title: 'Factor 3: w_f2', val: data.history_w_f2 || [0, 0], color: '#10b981' },
-        { id: 'f4Chart', title: 'Factor 4: w_cond3_j1', val: data.history_w_cond3_j1 || [0, 0], color: '#8b5cf6' },
-        { id: 'f5Chart', title: 'Factor 5: JX > RX Temp', val: data.history_temp_1 || [0, 0], color: '#f59e0b' },
-        { id: 'f6Chart', title: 'Factor 6: JX > J1 Temp', val: data.history_temp_2 || [0, 0], color: '#ec4899' },
-        { id: 'f7Chart', title: 'Factor 7: C > MACD Temp', val: data.history_temp_3 || [0, 0], color: '#14b8a6' },
-        { id: 'f8Chart', title: 'Factor 8: JX < RX Temp', val: data.history_temp_4 || [0, 0], color: '#6366f1' },
-        { id: 'f9Chart', title: 'Factor 9: C < MACU Temp', val: data.history_temp_5 || [0, 0], color: '#fb923c' }
-    ];
+function getChartTheme() {
+    return {
+        layout: { background: { type: 'solid', color: '#141820' }, textColor: '#6b7280', fontSize: 11, fontFamily: "'Inter', sans-serif" },
+        grid: { vertLines: { color: 'rgba(255,255,255,0.03)' }, horzLines: { color: 'rgba(255,255,255,0.03)' } },
+        crosshair: { mode: LightweightCharts.CrosshairMode.Normal,
+            vertLine: { color: 'rgba(255,255,255,0.08)', labelBackgroundColor: '#2a2e39' },
+            horzLine: { color: 'rgba(255,255,255,0.08)', labelBackgroundColor: '#2a2e39' } },
+        rightPriceScale: { borderColor: 'rgba(255,255,255,0.06)' },
+        timeScale: { borderColor: 'rgba(255,255,255,0.06)', timeVisible: true, secondsVisible: false },
+        autoSize: true,
+    };
+}
 
-    configs.forEach(cfg => {
-        const ctx = document.getElementById(cfg.id).getContext('2d');
-        const chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{ label: cfg.title, data: cfg.val, borderColor: cfg.color, tension: 0.4, borderWidth: 2, pointRadius: 0 }]
-            },
-            options: {
-                ...chartOptions,
-                plugins: { legend: { display: false }, title: { display: true, text: cfg.title, color: '#a0aec0', font: { size: 10, family: 'Inter' } } },
-                scales: { x: { display: false }, y: { ticks: { font: { size: 9 }, color: '#718096' }, grid: { color: 'rgba(255,255,255,0.05)' } } }
-            }
-        });
-        paramCharts.push(chart);
+function initCharts() {
+    const t = getChartTheme();
+    candleChart = LightweightCharts.createChart($('chart-candle'), t);
+    candleSeries = candleChart.addCandlestickSeries({ upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350' });
+
+    equityChart = LightweightCharts.createChart($('chart-equity'), t);
+    const fmt = { type: 'custom', formatter: (v) => '$' + v.toFixed(0) };
+    eqBase = equityChart.addLineSeries({ color: '#3b82f6', lineWidth: 2, priceFormat: fmt });
+    eqExpert = equityChart.addLineSeries({ color: '#ef4444', lineWidth: 1, lineStyle: 2, priceFormat: fmt });
+
+    const sf = { type: 'custom', formatter: (v) => v.toFixed(2) };
+    sigBK2Chart = LightweightCharts.createChart($('chart-sig-bk2'), t);
+    sigBK2Series = sigBK2Chart.addLineSeries({ color: '#10b981', lineWidth: 1, priceFormat: sf });
+    sigSK2Chart = LightweightCharts.createChart($('chart-sig-sk2'), t);
+    sigSK2Series = sigSK2Chart.addLineSeries({ color: '#ef4444', lineWidth: 1, priceFormat: sf });
+    sigSP1Chart = LightweightCharts.createChart($('chart-sig-sp1'), t);
+    sigSP1Series = sigSP1Chart.addLineSeries({ color: '#f59e0b', lineWidth: 1, priceFormat: sf });
+    sigSP2Chart = LightweightCharts.createChart($('chart-sig-sp2'), t);
+    sigSP2Series = sigSP2Chart.addLineSeries({ color: '#8b5cf6', lineWidth: 1, priceFormat: sf });
+
+    [sigBK2Chart, sigSK2Chart, sigSP1Chart, sigSP2Chart].forEach((ch) => {
+        ch._refLine = ch.addLineSeries({ color: 'rgba(255,255,255,0.15)', lineWidth: 1, lineStyle: 2, priceFormat: sf, crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false });
     });
 }
 
-function drawProbChart(data) {
-    const ctx = document.getElementById('probChart').getContext('2d');
-    if (probChartInstance) probChartInstance.destroy();
+// ============================================================
+// setVisibleRange — single source of truth
+// ============================================================
 
-    const labels = data.history_rl_decision.map((_, i) => `${i}h`);
+function setVisibleRange(days) {
+    currentRange = days;
+    document.querySelectorAll('.range-btn').forEach((b) => b.classList.toggle('active', parseInt(b.dataset.range) === days));
+    if (!ohlcData || !ohlcData.ohlc || ohlcData.ohlc.length === 0) return;
 
-    probChartInstance = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [
-                { label: 'Long P(Buy)', data: data.history_rl_decision.map(v => v[0]), borderColor: '#ef4444', tension: 0.1, borderWidth: 1, pointRadius: 0, fill: true, backgroundColor: 'rgba(239, 68, 68, 0.1)' },
-                { label: 'Short P(Sell)', data: data.history_rl_decision.map(v => v[1]), borderColor: '#10b981', tension: 0.1, borderWidth: 1, pointRadius: 0, fill: true, backgroundColor: 'rgba(16, 185, 129, 0.1)' }
-            ]
-        },
-        options: {
-            ...chartOptions,
-            scales: {
-                ...chartOptions.scales,
-                y: { ...chartOptions.scales.y, title: { display: true, text: 'Agent Confidence Limit', color: '#a0aec0' } }
-            }
+    const lastBar = ohlcData.ohlc[ohlcData.ohlc.length - 1];
+    const fromTS = days === 0 ? 0 : lastBar.time - days * 24 * 3600;
+    if (days === 0) candleChart.timeScale().fitContent();
+    else candleChart.timeScale().setVisibleRange({ from: fromTS, to: lastBar.time });
+
+    const rangeLabel = days === 0 ? '全部' : days <= 30 ? '1M' : days <= 90 ? '3M' : days <= 180 ? '6M' : days <= 365 ? '1Y' : '2Y';
+    const eqMap = { expert: eqExpert, base: eqBase };
+
+    ['expert', 'base'].forEach((type) => {
+        const metricEl = $(`v-${type}-pnl`);
+        const detailEl = $(`v-${type}-detail`);
+        const simEl = $(`sim-val-${type}`);
+        const eqSeries = eqMap[type];
+        const eq = storeData && storeData[`_eq_${type}`];
+        const trades = storeData && storeData[`trades_${type}`];
+
+        let tradeCount = 0, tradeWins = 0;
+        if (trades && trades.length > 0) {
+            const filtered = days === 0 ? trades : trades.filter((t) => t.entry_time >= fromTS);
+            tradeCount = filtered.length;
+            tradeWins = filtered.filter((t) => t.win).length;
+        }
+        const wr = tradeCount > 0 ? (tradeWins / tradeCount * 100).toFixed(1) : '0.0';
+
+        if (eq && eq.length > 0) {
+            let rangeEq = days === 0 ? eq : eq.filter(pt => pt.time >= fromTS);
+            if (rangeEq.length === 0) rangeEq = eq;
+            const baseVal = rangeEq[0].value;
+            const eqPnl = Math.round((rangeEq[rangeEq.length - 1].value - baseVal) * 100) / 100;
+            setMetricPnL(`v-${type}-pnl`, eqPnl);
+            detailEl.textContent = `${rangeLabel} | ${tradeCount}笔 | 胜率 ${wr}%`;
+            const rebased = rangeEq.map(pt => ({ time: pt.time, value: simCapital * (1 + (pt.value - baseVal) / 100 * simLeverage) }));
+            eqSeries.setData(rebased);
+            const endBal = rebased[rebased.length - 1].value;
+            simEl.textContent = `$${endBal.toFixed(0)}`;
+            simEl.className = `sim-bal-value ${endBal >= simCapital ? 'positive' : 'negative'}`;
+        } else {
+            metricEl.textContent = '--';
+            metricEl.className = 'metric-value';
+            detailEl.textContent = '无数据';
+            simEl.textContent = '--';
+            simEl.className = 'sim-bal-value';
+            eqSeries.setData([]);
         }
     });
-}
 
-function drawPnLChart(data) {
-    const ctx = document.getElementById('pnlChart').getContext('2d');
-    if (pnlChartInstance) pnlChartInstance.destroy();
-
-    const labels = data.history_base_pnl.map((_, i) => `${i}h`);
-
-    pnlChartInstance = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [
-                {
-                    label: 'Human Baseline',
-                    data: data.history_base_pnl.map(v => v * 100),
-                    borderColor: '#ef4444',
-                    borderDash: [5, 5],
-                    borderWidth: 2,
-                    tension: 0.1,
-                    fill: false
-                },
-                {
-                    label: 'Online RL Agent',
-                    data: data.history_rl_pnl.map(v => v * 100),
-                    borderColor: '#10b981',
-                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                    borderWidth: 3,
-                    tension: 0.1,
-                    fill: true
-                }
-            ]
-        },
-        options: {
-            ...chartOptions,
-            scales: {
-                ...chartOptions.scales,
-                y: { ...chartOptions.scales.y, title: { display: true, text: 'Cumulative PnL %', color: '#a0aec0' } }
-            }
-        }
-    });
-}
-
-// Utility: Set Button State
-function setButtonState(btn, spinner, isLoading) {
-    if (isLoading) {
-        btn.disabled = true;
-        spinner.classList.remove('hidden');
-    } else {
-        btn.disabled = false;
-        spinner.classList.add('hidden');
+    equityChart.timeScale().fitContent();
+    const activeTab = document.querySelector('.tab.active');
+    if (activeTab) {
+        const m = activeTab.getAttribute('onclick').match(/switchTradeTab\(this,'(\w+)'\)/);
+        if (m) updateCandleMarkers(m[1]);
     }
 }
 
-function logToConsole(message) {
-    statusBox.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+function setMetricPnL(id, value) {
+    const el = $(id);
+    el.textContent = `${value > 0 ? '+' : ''}${value}%`;
+    el.className = `metric-value ${value >= 0 ? 'positive' : 'negative'}`;
 }
 
-// Initial Load of Model State
-async function fetchMyLanguagePayload(type) {
-    try {
-        const rawFeatures = document.getElementById('ast-input-features').value;
-        const rawLabels = document.getElementById('ast-input-labels').value;
-        const rawMyLanguage = rawFeatures + "\n" + rawLabels;
+function applySimParams() {
+    simCapital = parseFloat($('sim-capital').value) || 10000;
+    simLeverage = parseFloat($('sim-leverage').value) || 1;
+    setVisibleRange(currentRange);
+    const activeTab = document.querySelector('.tab.active');
+    if (activeTab) {
+        const m = activeTab.getAttribute('onclick').match(/switchTradeTab\(this,'(\w+)'\)/);
+        if (m) renderTradeLog(storeData && storeData[`trades_${m[1]}`] || [], STRATEGY[m[1]].label);
+    }
+}
 
-        const res = await fetch(`${API_BASE}/extract?type=${type}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mylanguage: rawMyLanguage })
+// ============================================================
+// Trade log & markers
+// ============================================================
+
+function renderTradeLog(trades, label) {
+    const tbody = $('trade-body');
+    tbody.innerHTML = '';
+    if (!trades || trades.length === 0) { tbody.innerHTML = '<tr><td colspan="8" class="empty-state">暂无交易记录</td></tr>'; return; }
+    [...trades].reverse().forEach((t, i) => {
+        const tr = document.createElement('tr');
+        const cls = t.win ? 'positive' : 'negative';
+        const usdtPnl = simCapital * (t.pnl_pct / 100) * simLeverage;
+        tr.innerHTML = `<td>${trades.length - i}</td><td>${formatTS(t.entry_time)}</td><td>${formatTS(t.exit_time)}</td>
+            <td>$${t.entry_price.toFixed(2)}</td><td>$${t.exit_price.toFixed(2)}</td>
+            <td class="${cls}">${t.pnl_pct >= 0 ? '+' : ''}${t.pnl_pct.toFixed(3)}%</td>
+            <td class="${cls}">${usdtPnl >= 0 ? '+' : ''}${usdtPnl.toFixed(2)}</td>
+            <td class="${cls}">${t.win ? '盈利' : '亏损'}</td>`;
+        tbody.appendChild(tr);
+    });
+}
+
+function switchTradeTab(btn, type) {
+    document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+    btn.classList.add('active');
+    if (!storeData) return;
+    renderTradeLog(storeData[`trades_${type}`] || [], STRATEGY[type].label);
+    updateCandleMarkers(type);
+}
+window.switchTradeTab = switchTradeTab;
+
+function updateCandleMarkers(type) {
+    if (!storeData) return;
+    const trades = storeData[`trades_${type}`] || [];
+    const s = STRATEGY[type];
+    try { document.querySelector('#chart-candle').closest('.chart-panel').querySelector('h2').innerHTML = `K线图 · SPY 1H <span style="color:${s.color};font-size:11px;margin-left:8px;">[${s.label}]</span>`; } catch(e) {}
+    const markers = [];
+    trades.forEach((t) => {
+        markers.push({ time: t.entry_time, position: 'belowBar', color: s.color, shape: 'arrowUp', text: s.buy, size: 1 });
+        markers.push({ time: t.exit_time, position: 'aboveBar', color: t.win ? s.color : s.colorLoss, shape: 'arrowDown', text: t.win ? s.win : s.loss, size: 1 });
+    });
+    markers.sort((a, b) => a.time - b.time);
+    candleSeries.setMarkers(markers);
+}
+
+// ============================================================
+// Parameter Analysis Panel
+// ============================================================
+
+function renderParams(data) {
+    const el = $('param-analysis');
+    $('param-total').textContent = `${data.total_params.toLocaleString()} 参数`;
+
+    const dl = data.decision_layer;
+    const fl = data.factor_layer;
+    const tl = data.transformer_layer;
+
+    let html = '';
+
+    // ---- Layer 1: Decision ----
+    html += `<div class="pa-section">
+        <div class="pa-section-title">第一层：九因子 → 交易信号（决策组合层）</div>
+        <div class="pa-formula">JX = J1 + J2 + <em>w_bias</em> + J2*TEMA3T3*<em>w_f1</em> + J1*TEMA3T2*<em>w_f2</em> + J3*TEMA3T1<br>
+        BK2 = (JX↑) AND (C>MA_down) AND (JX > J1 * <em>w_cond3_j1</em>)</div>
+        <table class="pa-table">
+            <thead><tr><th>参数</th><th>作用</th><th>原始</th><th>训练后</th><th>变化量</th><th>变化率</th></tr></thead><tbody>`;
+    dl.constants.forEach(c => {
+        const cls = Math.abs(c.pct) > 20 ? (c.pct > 0 ? 'pa-up' : 'pa-down') : '';
+        html += `<tr class="${cls}"><td class="pa-name">${c.name}</td><td class="pa-desc">${c.desc}</td>
+            <td>${c.init.toFixed(2)}</td><td>${c.trained.toFixed(2)}</td>
+            <td class="pa-delta">${c.delta >= 0 ? '+' : ''}${c.delta.toFixed(2)}</td>
+            <td class="pa-pct">${c.pct >= 0 ? '+' : ''}${c.pct.toFixed(1)}%</td></tr>`;
+    });
+    html += `</tbody></table>`;
+
+    // Temperatures
+    html += `<div class="pa-sub-title">逻辑门温度（temp越大 → 判断越锐利）</div>
+        <table class="pa-table">
+            <thead><tr><th>逻辑门</th><th>控制条件</th><th>原始</th><th>训练后</th><th>锐化倍数</th></tr></thead><tbody>`;
+    dl.temperatures.forEach(t => {
+        const cls = Math.abs(t.ratio) > 5 ? 'pa-up' : t.ratio < 0 ? 'pa-down' : '';
+        html += `<tr class="${cls}"><td class="pa-name">${t.gate}</td><td class="pa-desc">${t.cond}</td>
+            <td>${t.init.toFixed(2)}</td><td>${t.trained.toFixed(2)}</td>
+            <td class="pa-ratio">${t.ratio.toFixed(1)}x</td></tr>`;
+    });
+    html += `</tbody></table></div>`;
+
+    // ---- Layer 2: Factors ----
+    html += `<div class="pa-section"><div class="pa-section-title">第二层：原始OHLC → 九因子（因子计算层）</div>`;
+    fl.forEach(group => {
+        html += `<div class="pa-group-header"><span class="pa-group-name">${group.title}</span><span class="pa-group-desc">${group.desc}</span></div>
+            <table class="pa-table pa-table-compact">
+                <thead><tr><th>名称</th><th>原始周期</th><th>训练周期</th><th>周期变化</th></tr></thead><tbody>`;
+        group.params.forEach(p => {
+            const cls = Math.abs(p.delta_period) > 5 ? (p.delta_period > 0 ? 'pa-up' : 'pa-down') : '';
+            html += `<tr class="${cls}"><td class="pa-name">${p.name}</td>
+                <td>N=${p.init_period}</td><td>N=${p.trained_period}</td>
+                <td class="pa-delta">${p.delta_period >= 0 ? '+' : ''}${p.delta_period.toFixed(1)}</td></tr>`;
         });
+        html += `</tbody></table>`;
+    });
+    html += `</div>`;
+
+    // ---- Layer 3: Transformer ----
+    html += `<div class="pa-section"><div class="pa-section-title">第三层：Transformer 残差纠正层</div>
+        <div class="pa-formula">final = sigmoid(logit(expert_prob) + correction)</div>
+        <table class="pa-table">
+            <thead><tr><th>层</th><th>参数量</th><th>mean|Δ|</th><th>max|Δ|</th><th>RMS(Δ)</th></tr></thead><tbody>`;
+    tl.forEach(l => {
+        html += `<tr><td class="pa-name">${l.name}</td><td>${l.count.toLocaleString()}</td>
+            <td>${l.mean_delta.toFixed(4)}</td><td>${l.max_delta.toFixed(4)}</td><td>${l.rms_delta.toFixed(4)}</td></tr>`;
+    });
+    html += `</tbody></table></div>`;
+
+    el.innerHTML = html;
+}
+
+// ============================================================
+// Data Loading
+// ============================================================
+
+async function loadOHLC() {
+    try {
+        log('加载2年K线数据...');
+        const res = await fetch(`${API}/ohlc`);
+        const data = await res.json();
+        if (!data.success) { log(`OHLC失败: ${data.error}`); return; }
+
+        ohlcData = data;
+        if (data.ohlc && data.ohlc.length > 0) {
+            candleSeries.setData(data.ohlc);
+            const first = new Date(data.ohlc[0].time * 1000);
+            const last = new Date(data.ohlc[data.ohlc.length - 1].time * 1000);
+            $('data-range').textContent = `${formatDate(first)} ~ ${formatDate(last)} (2Y)`;
+        }
+
+        if (!storeData) storeData = {};
+        if (data.expert) { storeData.trades_expert = data.expert.trade_list; storeData._eq_expert = data.expert.equity; }
+        if (data.base)   { storeData.trades_base = data.base.trade_list; storeData._eq_base = data.base.equity; }
+
+        const defaultTab = data.base ? 'base' : 'expert';
+        document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+        document.querySelector(`.tab[onclick*="${defaultTab}"]`).classList.add('active');
+        renderTradeLog((defaultTab === 'base' && data.base ? data.base : data.expert).trade_list, STRATEGY[defaultTab].label);
+
+        setVisibleRange(currentRange);
+        updateCandleMarkers(defaultTab);
+
+        const eI = data.expert ? `专家 ${fmtPnL(data.expert.pnl)} (${data.expert.trades}笔)` : '';
+        const bI = data.base ? ` | 模型 ${fmtPnL(data.base.pnl)} (${data.base.trades}笔)` : '';
+        log(`数据已加载 (${data.ohlc.length} bars) ${eI}${bI}`);
+    } catch (err) { log(`OHLC失败: ${err.message}`); }
+}
+
+async function loadMyLanguage() {
+    try {
+        const res = await fetch(`${API}/extract`);
         const data = await res.json();
         if (data.success) {
-            mylanguageBox.value = data.mylanguage_code;
-            badge.innerText = `Current: ${type === 'rl' ? 'Phase 14 Online RL' : 'Base Pre-Trained'}`;
-            logToConsole(`Loaded ${type} state dictionary from disk.`);
+            $('ml-code').value = data.code;
+        } else {
+            $('ml-code').value = `导出失败: ${data.error}`;
         }
     } catch (err) {
-        logToConsole(`Error connecting to Backend API: ${err}`);
+        $('ml-code').value = `导出失败: ${err.message}`;
     }
 }
 
-// Event Listeners
-document.getElementById('btn-load-base').addEventListener('click', () => fetchMyLanguagePayload('base'));
-document.getElementById('btn-load-rl').addEventListener('click', () => fetchMyLanguagePayload('rl'));
-
-document.getElementById('btn-copy').addEventListener('click', () => {
-    navigator.clipboard.writeText(mylanguageBox.value);
-    document.getElementById('btn-copy').innerText = "Copied!";
-    setTimeout(() => { document.getElementById('btn-copy').innerText = "Copy"; }, 2000);
-});
-
-btnPretrain.addEventListener('click', async () => {
-    const epochs = document.getElementById('epoch-input').value;
-    const lr = document.getElementById('lr-input').value;
-    const rawFeatures = document.getElementById('ast-input-features').value;
-    const rawLabels = document.getElementById('ast-input-labels').value;
-
-    // The parser backend expects a single string logic sequence to extract JX and BK2
-    const rawMyLanguage = rawFeatures + "\n" + rawLabels;
-
-    setButtonState(btnPretrain, spinPretrain, true);
-    btnRL.disabled = true;
-
-    // Immediately clear stale metrics to give visual feedback that calculation has started
-    document.getElementById('title-wr').innerText = "Calculating...";
-    document.getElementById('title-pnl').innerText = "Calculating...";
-    metricLoss.innerText = "...";
-    metricWR.innerText = "Loading...";
-    metricPnL.innerText = "Simulating...";
-    metricPnL.parentElement.classList.remove('highlight');
-
-    logToConsole(`[AST Parser] Analyzing custom MyLanguage Strategy Structure...`);
-
+async function loadParams() {
     try {
-        // 1. AST Tokenization
-        const parseRes = await fetch(`${API_BASE}/parse`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mylanguage: rawMyLanguage })
+        const res = await fetch(`${API}/params`);
+        const data = await res.json();
+        if (data.success) renderParams(data);
+        else $('param-analysis').innerHTML = `<div class="pa-loading">参数加载失败: ${data.error}</div>`;
+    } catch (err) { $('param-analysis').innerHTML = `<div class="pa-loading">参数加载失败: ${err.message}</div>`; }
+}
+
+// ============================================================
+// Utils
+// ============================================================
+
+function log(msg) {
+    const ts = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    $('status-console').textContent = `[${ts}] ${msg}`;
+    $('header-status').textContent = msg.substring(0, 50);
+}
+function formatTS(ts) {
+    if (!ts) return '--';
+    const d = new Date(ts * 1000);
+    return `${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+}
+function formatDate(d) { return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')}`; }
+function fmtPnL(v) { return `${v > 0 ? '+' : ''}${v}%`; }
+
+// ============================================================
+// Init
+// ============================================================
+
+document.addEventListener('DOMContentLoaded', () => {
+    initCharts();
+    $('btn-sim-apply').addEventListener('click', applySimParams);
+    $('btn-copy-ml').addEventListener('click', () => {
+        const ta = $('ml-code');
+        ta.select();
+        navigator.clipboard.writeText(ta.value).then(() => {
+            const btn = $('btn-copy-ml');
+            btn.textContent = '已复制!';
+            setTimeout(() => btn.textContent = '复制代码', 1500);
         });
-        const parseData = await parseRes.json();
-
-        if (!parseData.success) {
-            logToConsole(`[AST Parser Error] ${parseData.error}`);
-            setButtonState(btnPretrain, spinPretrain, false);
-            btnRL.disabled = false;
-            return;
-        }
-
-        logToConsole(`[AST Success] Strategy constants tokenized. Initiating 2-Year Base Training... (Epochs: ${epochs}, LR: ${lr}).`);
-
-        // 2. Training Execution with Payload
-        const response = await fetch(`${API_BASE}/pretrain`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                epochs: parseInt(epochs),
-                learning_rate: parseFloat(lr),
-                ast_config: parseData.ast_config
-            })
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            const history = data.metrics.history_loss || [];
-
-            const finishTrainingUI = () => {
-                mylanguageBox.value = data.mylanguage_code;
-                metricLoss.innerText = data.metrics.final_val_loss.toFixed(4);
-
-                document.getElementById('title-wr').innerText = "Model Win Rate";
-                const model_wr = data.metrics.best_win_rate_percent.toFixed(1);
-                const base_wr = data.metrics.best_base_win_rate_percent ? data.metrics.best_base_win_rate_percent.toFixed(1) : "37.4";
-                metricWR.innerText = `Model: ${model_wr}% | Base: ${base_wr}%`;
-
-                document.getElementById('title-pnl').innerText = "PnL Outperformance";
-                const model_pnl = data.metrics.best_pnl_percent;
-                const base_pnl = data.metrics.best_base_pnl_percent;
-                metricPnL.innerText = `Model: ${model_pnl > 0 ? '+' : ''}${model_pnl.toFixed(2)}% | Base: ${base_pnl > 0 ? '+' : ''}${base_pnl.toFixed(2)}%`;
-
-                if (model_pnl > 0) {
-                    metricPnL.parentElement.classList.add('highlight');
-                } else {
-                    metricPnL.parentElement.classList.remove('highlight');
-                }
-
-                if (data.metrics.history_loss && data.metrics.history_loss.length > 0) {
-                    drawParamChart(data.metrics);
-                }
-
-                badge.innerText = "Current: Base Pre-Trained";
-                logToConsole(`Training Complete! Differentiable Expert parameters successfully optimized.`);
-                setButtonState(btnPretrain, spinPretrain, false);
-                btnRL.disabled = false;
-            };
-
-            if (history.length > 0) {
-                let currentEpoch = 0;
-                // Animate the epochs popping into the console over 2 seconds
-                const streamInterval = setInterval(() => {
-                    logToConsole(`[PyTorch GPU Engine] Epoch ${currentEpoch + 1}/${history.length} - Loss: ${history[currentEpoch].toFixed(4)}`);
-                    currentEpoch++;
-                    if (currentEpoch >= history.length) {
-                        clearInterval(streamInterval);
-                        finishTrainingUI();
-                    }
-                }, 40); // 40ms * 50 = 2 seconds
-            } else {
-                finishTrainingUI();
-            }
-        } else {
-            logToConsole(`Error: ${data.error}`);
-            setButtonState(btnPretrain, spinPretrain, false);
-            btnRL.disabled = false;
-        }
-    } catch (err) {
-        logToConsole(`Critial Error: ${err}`);
-        setButtonState(btnPretrain, spinPretrain, false);
-        btnRL.disabled = false;
-    }
-});
-
-btnRL.addEventListener('click', async () => {
-    const hold = document.getElementById('hold-input').value;
-    const rawFeatures = document.getElementById('ast-input-features').value;
-    const rawLabels = document.getElementById('ast-input-labels').value;
-    const rawMyLanguage = rawFeatures + "\n" + rawLabels;
-
-    setButtonState(btnRL, spinRL, true);
-    btnPretrain.disabled = true;
-
-    // Immediately clear stale metrics to give visual feedback that calculation has started
-    document.getElementById('title-wr').innerText = "Calculating...";
-    document.getElementById('title-pnl').innerText = "Calculating...";
-    metricLoss.innerText = "...";
-    metricWR.innerText = "Loading...";
-    metricPnL.innerText = "Simulating...";
-    metricPnL.parentElement.classList.remove('highlight');
-
-    logToConsole(`Streamloading latest 90-days live market ticks to RL Agent...`);
-
-    try {
-        const response = await fetch(`${API_BASE}/rl`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                hold_period: parseInt(hold),
-                mylanguage: rawMyLanguage
-            })
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            mylanguageBox.value = data.mylanguage_code;
-
-            document.getElementById('title-loss').innerText = "Live Trades Count";
-            metricLoss.innerText = `${data.metrics.rl_trades_count}`;
-
-            document.getElementById('title-wr').innerText = "Model Win Rate";
-            const rl_wr = data.metrics.rl_win_rate_percent.toFixed(1);
-            // In RL, the baseline evaluated win rate isn't currently surfaced in the python return packet, so we fallback to the known baseline.
-            metricWR.innerText = `Model: ${rl_wr}% | Base: 37.4%`;
-
-            document.getElementById('title-pnl').innerText = "PnL Outperformance";
-            // Calculate Absolute Outperformance against Human Base
-            const rl_pnl = data.metrics.rl_agent_pnl_percent;
-            const base_pnl = data.metrics.base_expert_pnl_percent;
-            metricPnL.innerText = `Model: ${rl_pnl > 0 ? '+' : ''}${rl_pnl.toFixed(2)}% | Base: ${base_pnl > 0 ? '+' : ''}${base_pnl.toFixed(2)}%`;
-            if (rl_pnl > 0) metricPnL.parentElement.classList.add('highlight');
-            else metricPnL.parentElement.classList.remove('highlight');
-
-            if (data.metrics.history_rl_pnl && data.metrics.history_rl_pnl.length > 0) {
-                drawPnLChart(data.metrics);
-                if (data.metrics.history_rl_decision) drawProbChart(data.metrics);
-            }
-
-            badge.innerText = "Current: Phase 14 Online RL";
-            logToConsole(`Live Stream finished. RL Agent PnL: ${data.metrics.rl_agent_pnl_percent}% vs Riged Expert PnL: ${data.metrics.base_expert_pnl_percent}%`);
-        } else {
-            logToConsole(`Error: ${data.error}`);
-        }
-    } catch (err) {
-        logToConsole(`Critical Error: ${err}`);
-    } finally {
-        setButtonState(btnRL, spinRL, false);
-        btnPretrain.disabled = false;
-    }
-});
-
-// Init load
-window.onload = () => {
-    // Draw Empty Graph Structural Overlays immediately so UI isn't jarringly blank
-    drawParamChart({});
-
-    drawPnLChart({
-        history_base_pnl: [0, 0, 0, 0, 0],
-        history_rl_pnl: [0, 0, 0, 0, 0]
     });
-
-    drawProbChart({
-        history_rl_decision: [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]
-    });
-
-    fetchMyLanguagePayload('rl');
-};
+    document.querySelectorAll('.range-btn').forEach((btn) => btn.addEventListener('click', () => setVisibleRange(parseInt(btn.dataset.range))));
+    loadOHLC();
+    loadParams();
+    loadMyLanguage();
+});

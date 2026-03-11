@@ -1,5 +1,90 @@
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
+import math
+
+class DifferentiableEMA(nn.Module):
+    """
+    Differentiable Exponential Moving Average.
+    Instead of a fixed integer period N, it learns a weight w_alpha.
+    alpha = sigmoid(w_alpha)
+    We initialize w_alpha using Logit to exactly match 2/(N+1) at Epoch 0.
+    """
+    def __init__(self, init_n):
+        super().__init__()
+        # Inverse mapping: w = ln(p / (1-p)) where p = 2/(N+1)
+        p = 2.0 / (init_n + 1.0)
+        init_w = math.log(p / (1.0 - p))
+        self.w_alpha = nn.Parameter(torch.tensor(init_w, dtype=torch.float32))
+
+    def forward(self, tensor):
+        alpha = torch.sigmoid(self.w_alpha)
+        res = torch.empty_like(tensor)
+        if len(tensor) == 0:
+            return res
+        
+        valid_mask = ~torch.isnan(tensor)
+        if not valid_mask.any():
+            return res.fill_(float('nan'))
+        
+        first_valid_idx = valid_mask.nonzero()[0].item()
+        res[:first_valid_idx] = float('nan')
+        res[first_valid_idx] = tensor[first_valid_idx]
+        
+        val = tensor[first_valid_idx].item()
+        for i in range(first_valid_idx + 1, len(tensor)):
+            x = tensor[i].item()
+            if torch.isnan(torch.tensor(x)):
+                res[i] = val
+            else:
+                val = alpha * x + (1 - alpha) * val
+                res[i] = val
+        return res
+
+class SoftAttentionHHV(nn.Module):
+    """
+    Differentiable Highest High Value using Soft-Attention.
+    Temperature tau determines how sharply to pick the absolute max.
+    As tau -> 0, it behaves exactly like max(X).
+    """
+    def __init__(self, n, init_tau=-10.0):
+        super().__init__()
+        self.n = n
+        # Softplus(w_tau) guarantees tau is strictly > 0.
+        # Initialize with -10.0 makes tau very close to 0, mimicking exact max.
+        self.w_tau = nn.Parameter(torch.tensor(init_tau, dtype=torch.float32))
+
+    def forward(self, tensor):
+        tau = F.softplus(self.w_tau) + 1e-5
+        
+        padded = F.pad(tensor, (self.n - 1, 0), value=float('-inf'))
+        unfolded = padded.unfold(0, self.n, 1) # [L, n]
+        
+        # Soft-Attention calculation: sum(x * exp(x/tau)) / sum(exp(x/tau))
+        weights = F.softmax(unfolded / tau, dim=1)
+        soft_max_vals = (unfolded * weights).sum(dim=1)
+        return soft_max_vals
+
+class SoftAttentionLLV(nn.Module):
+    """
+    Differentiable Lowest Low Value using Soft-Attention.
+    We invert the signal: softmax(-x / tau) selects the minimum.
+    """
+    def __init__(self, n, init_tau=-10.0):
+        super().__init__()
+        self.n = n
+        self.w_tau = nn.Parameter(torch.tensor(init_tau, dtype=torch.float32))
+
+    def forward(self, tensor):
+        tau = F.softplus(self.w_tau) + 1e-5
+        
+        padded = F.pad(tensor, (self.n - 1, 0), value=float('inf'))
+        unfolded = padded.unfold(0, self.n, 1) # [L, n]
+        
+        # Soft-Attention calculation for Minimum
+        weights = F.softmax(-unfolded / tau, dim=1)
+        soft_min_vals = (unfolded * weights).sum(dim=1)
+        return soft_min_vals
 
 def REF(tensor, n):
     """

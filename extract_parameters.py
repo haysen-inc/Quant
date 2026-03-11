@@ -40,5 +40,4 @@ def extract_and_translate(model_name, model_path):
     print(f"BK2:= ... AND (JX > J1 * {w_cond3_j1:.4f});")
 
 if __name__ == "__main__":
-    extract_and_translate("Phase 14: 纯静态历史预训练版", "models/quant_transformer.pth")
-    extract_and_translate("Phase 14: 在线活体沙盒实盘进化版 (Online RL)", "models/live_adapted_expert_1h.pth")
+    extract_and_translate("预训练模型", "models/quant_transformer.pth")
